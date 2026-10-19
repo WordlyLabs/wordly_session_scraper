@@ -1,5 +1,5 @@
 # wordly_session_scraper_v1_1.py
-# VERSION: 1.1.4
+# VERSION: 1.1.5
 # CHANGE: Match session restore sequence exactly to working v3.2b script;
 #         use btn.count()>0 instead of is_visible(); 10s nav wait.
 # PURPOSE: Scrape Wordly portal usage page by service and date, write to BigQuery.
@@ -20,7 +20,7 @@ from google.cloud import bigquery
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURATION ---
-SCRIPT_DIR   = os.getcwd()
+SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
 CREDS_FILE   = os.path.join(SCRIPT_DIR, "wordly_creds.txt")
 SLACK_FILE   = os.path.join(SCRIPT_DIR, "slack_webhook.txt")
 SESSION_FILE = "/Users/wordly_apps/Documents/Code/Wordly_Usage_to_HS/wordly_session_state.json"
@@ -170,6 +170,19 @@ def get_bq_last_date():
     return fallback
 
 
+
+def check_cookie_age():
+    """Warn if session cookie is getting old (>5 days)."""
+    if not os.path.exists(SESSION_FILE):
+        return
+    age_days = (datetime.now().timestamp() - os.path.getmtime(SESSION_FILE)) / 86400
+    if age_days > 5:
+        send_slack(
+            f"⚠️ Session cookie is {age_days:.1f} days old — refresh Friday before it expires.",
+            is_error=False
+        )
+        print(f"  ⚠️ Cookie age warning: {age_days:.1f} days old")
+
 # --- LOGIN + SERVICE LIST ---
 
 def login_and_get_services(context, email, password):
@@ -230,7 +243,7 @@ def login_and_get_services(context, email, password):
 
     # Navigate to usage page on the same page object — no cold new tab
     print("📋 Reading service list...")
-    page.goto("https://portal.wordly.ai/#/usageAll", wait_until="networkidle")
+    page.goto("https://portal.wordly.ai/#/admin-usage", wait_until="networkidle")
     page.wait_for_timeout(10000)
     nuke_alert(page, "usage page")
 
@@ -313,7 +326,7 @@ def scrape_one(context, service, date_str):
     page = context.new_page()
 
     try:
-        page.goto("https://portal.wordly.ai/#/usageAll", wait_until="networkidle")
+        page.goto("https://portal.wordly.ai/#/admin-usage", wait_until="networkidle")
         page.wait_for_timeout(5000)
         nuke_alert(page, "usage page")
         page.wait_for_selector("#serviceFilter", timeout=20000)
@@ -462,9 +475,7 @@ def run():
     _start_dt = _dt.strptime(start, "%m/%d/%Y")
     _end_dt   = _dt.strptime(END_DATE, "%m/%d/%Y")
     if _start_dt > _end_dt:
-        msg = f"Session scraper: data is current through {END_DATE} — nothing to scrape."
-        print(f"⚠️  {msg}")
-        send_slack(msg, is_error=False)
+        print(f"⚠️  Session scraper: data is current through {END_DATE} — nothing to scrape.")
         return
 
     print(f"\n🚀 wordly_session_scraper v1.1.4 — "
@@ -473,6 +484,7 @@ def run():
     print(f"   BQ table    : {BQ_TABLE_REF}")
     print(f"   Validation  : {VALIDATION_SERVICE or 'OFF — all services'}\n")
 
+    check_cookie_age()
     email, password = load_creds(CREDS_FILE)
     ensure_bq_dataset()
 
@@ -538,12 +550,12 @@ def run():
             is_error=True
         )
     else:
-        send_slack(
-            f"✅ Success: Daily Session Info captured. "
-            f"{total_rows} rows | {total_skips} zero-skips | {start}→{END_DATE}",
-            is_error=False
-        )
+        print("✅ Clean run — no Slack ping needed.")
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        send_slack(f"🚨 session_scraper crashed before completing: {e}", is_error=True)
+        raise
