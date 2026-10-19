@@ -176,7 +176,7 @@ def check_cookie_age():
     if not os.path.exists(SESSION_FILE):
         return
     age_days = (datetime.now().timestamp() - os.path.getmtime(SESSION_FILE)) / 86400
-    if age_days > 5:
+    if age_days > 8:
         send_slack(
             f"⚠️ Session cookie is {age_days:.1f} days old — refresh Friday before it expires.",
             is_error=False
