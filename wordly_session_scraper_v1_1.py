@@ -1,5 +1,6 @@
 # wordly_session_scraper_v1_1.py
-# VERSION: 1.1.5
+# VERSION: 1.1.5b
+# MODIFIED: 2026-11-05 by Claude (chat: Wordly Portal Data Analytics project) - read account ID/name from 'Pool of Minutes'
 # CHANGE: Match session restore sequence exactly to working v3.2b script;
 #         use btn.count()>0 instead of is_visible(); 10s nav wait.
 # PURPOSE: Scrape Wordly portal usage page by service and date, write to BigQuery.
@@ -406,6 +407,13 @@ def prepare_df(df, service, date_str):
         df["wordly_account_id"] = parsed[1]
         df.rename(columns={"account": "account_raw"}, inplace=True)
 
+    elif "pool_of_minutes" in df.columns:
+        # Portal renamed "Account" to "Pool of Minutes" (mid-July 2026).
+        # Format: "Account Name (a1b2c)". Raw text stays in pool_of_minutes.
+        parsed = df["pool_of_minutes"].str.extract(r'^(.*?)\s*\(([0-9a-fA-F]{5})\)\s*$')
+        df["account_name"]      = parsed[0].where(parsed[0].notna(), df["pool_of_minutes"])
+        df["wordly_account_id"] = parsed[1]
+
     df["_service"]     = service
     df["_scrape_date"] = date_str
     df["_inserted_at"] = datetime.now().isoformat()
@@ -478,7 +486,7 @@ def run():
         print(f"⚠️  Session scraper: data is current through {END_DATE} — nothing to scrape.")
         return
 
-    print(f"\n🚀 wordly_session_scraper v1.1.4 — "
+    print(f"\n🚀 wordly_session_scraper v1.1.5b — "
           f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"   Date range  : {start} → {END_DATE}")
     print(f"   BQ table    : {BQ_TABLE_REF}")
